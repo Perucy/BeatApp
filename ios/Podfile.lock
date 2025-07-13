@@ -2122,6 +2122,8 @@ PODS:
     - React-perflogger (= 0.80.1)
     - React-utils (= 0.80.1)
     - SocketRocket
+  - RNInAppBrowser (3.7.0):
+    - React-Core
   - SocketRocket (0.7.1)
   - Yoga (0.0.0)
 
@@ -2198,6 +2200,7 @@ DEPENDENCIES:
   - ReactAppDependencyProvider (from `build/generated/ios`)
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
+  - RNInAppBrowser (from `../node_modules/react-native-inappbrowser-reborn`)
   - SocketRocket (~> 0.7.1)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
@@ -2349,6 +2352,8 @@ EXTERNAL SOURCES:
     :path: build/generated/ios
   ReactCommon:
     :path: "../node_modules/react-native/ReactCommon"
+  RNInAppBrowser:
+    :path: "../node_modules/react-native-inappbrowser-reborn"
   Yoga:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
@@ -2424,6 +2429,7 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: ba631a31783569c13056dd57ff39e19764abdd6f
   ReactCodegen: b16d00d43b4e9dc44af53be171b17d93b4b20267
   ReactCommon: 96684b90b235d6ae340d126141edd4563b7a446a
+  RNInAppBrowser: e36d6935517101ccba0e875bac8ad7b0cb655364
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: daa1e4de4b971b977b23bc842aaa3e135324f1f3
 

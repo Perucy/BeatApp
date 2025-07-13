@@ -1,7 +1,32 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image, Alert } from 'react-native';
+import InAppBrowser from 'react-native-inappbrowser-reborn';
 
 const LoginScreen = ({ navigation }) => {
+  const handleSpotifyLogin = async () => {
+    try {
+      const response = await fetch('http://192.168.1.248:5001/spotify/auth_url');
+      const { auth_url } = await response.json();
+      if (await InAppBrowser.isAvailable()) {
+        const result = await InAppBrowser.open(auth_url, {
+          dismissButtonStyle: 'cancel',
+          preferredBarTintColor: '#1DB954',
+          preferredControlTintColor: 'white',
+        });
+
+        if (result.url) {
+          const callbackResponse = await fetch(`http://192.168.1.248:5001/spotify/callback?url=${encodeURIComponent(result.url)}`);
+          const tokenData = await callbackResponse.json();
+
+          console.log('Auth successful:', tokenData);
+          navigation.navigate('Home')
+        }
+      }
+    } catch (error) {
+      console.error('Authentication failed:', error);
+      Alert.alert('Connection Error', 'Failed to connect to Spotify. Please try again later.');
+    }
+  };
   return (
     <View style={styles.container}>
       {/* App Logo - True Center */}
@@ -21,7 +46,7 @@ const LoginScreen = ({ navigation }) => {
           <Text style={styles.buttonText}>Connect WHOOP</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={[styles.button, styles.spotifyButton]}>
+        <TouchableOpacity style={[styles.button, styles.spotifyButton]} onPress={handleSpotifyLogin}>
           <Image source={require('./assets/spotify-logo.png')} style={styles.buttonIcon} />
           <Text style={styles.buttonText}>Connect Spotify</Text>
         </TouchableOpacity>
