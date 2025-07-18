@@ -2,66 +2,104 @@ import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, Alert, Linking } from 'react-native';
 import InAppBrowser from 'react-native-inappbrowser-reborn';
 
-
 const LoginScreen = ({ navigation }) => {
-  // Handle deep link when app is opened from redirect
   useEffect(() => {
-    const handleDeepLink = (event) => {
-      if (event.url.includes('beatpulse://callback')) {
-        const url = new URL(event.url);
-        const code = url.searchParams.get('code');
+    const parseDeepLinkUrl = (url) => {
+      try {
+        const params = {};
+        const queryString = url.split('?')[1];
         
-        if (code) {
-          exchangeCodeForToken(code);
+        if (queryString) {
+          queryString.split('&').forEach(param => {
+            const [key, value] = param.split('=');
+            params[decodeURIComponent(key)] = decodeURIComponent(value || '');
+          });
+        }
+        
+        return params;
+      } catch (error) {
+        console.error('Error parsing URL:', error);
+        return {};
+      }
+    };
+
+    const handleDeepLink = (event) => {
+      const url = typeof event === 'string' ? event : event.url;
+      
+      if (url && url.includes('beatpulse://callback')) {
+        console.log('Deep link received:', url);
+        const params = parseDeepLinkUrl(url);
+        
+        if (params.code) {
+          exchangeCodeForToken(params.code);
+        } else if (params.error) {
+          console.error('OAuth error:', params.error);
+          Alert.alert('Authentication Error', params.error_description || 'Authentication failed');
+        } else {
+          console.warn('No authorization code found in deep link');
         }
       }
     };
 
-    // Listen for incoming links
-    Linking.addEventListener('url', handleDeepLink);
+    // For newer React Native versions
+    const subscription = Linking.addEventListener('url', handleDeepLink);
 
     // Check if app was launched from a deep link
     Linking.getInitialURL().then(url => {
       if (url && url.includes('beatpulse://callback')) {
-        handleDeepLink({ url });
+        console.log('App launched with deep link:', url);
+        handleDeepLink(url);
       }
+    }).catch(error => {
+      console.error('Error checking initial URL:', error);
     });
 
     return () => {
-      Linking.removeEventListener('url', handleDeepLink);
+      subscription?.remove();
     };
   }, []);
 
   const exchangeCodeForToken = async (code) => {
     try {
+      console.log('Exchanging code for token:', code);
       const response = await fetch(
-        `http://192.168.1.248:5001/spotify/callback?code=${code}`
+        `http://127.0.0.1:5001/spotify/callback?code=${code}`
       );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const tokenData = await response.json();
-      console.log('Auth successful:', tokenData);
-      navigation.navigate('Home');
+      
+      if (tokenData.error) {
+        throw new Error(tokenData.error);
+      }
+      
+      if (tokenData.access_token) {
+        console.log('Auth successful, navigating to Home');
+        navigation.navigate('Home');
+      } else {
+        throw new Error('No access token received');
+      }
     } catch (error) {
       console.error('Token exchange failed:', error);
-      Alert.alert('Error', 'Failed to complete authentication');
+      Alert.alert('Authentication Error', 'Failed to complete authentication. Please try again.');
     }
   };
 
   const handleSpotifyLogin = async () => {
     try {
-      const response = await fetch('http://192.168.1.248:5001/spotify/auth_url');
+      const response = await fetch('http://127.0.0.1:5001/spotify/auth_url');
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
       const { auth_url } = await response.json();
       
-      if (await InAppBrowser.isAvailable()) {
-        await InAppBrowser.open(auth_url, {
-          dismissButtonStyle: 'cancel',
-          preferredBarTintColor: '#1DB954',
-          preferredControlTintColor: 'white',
-          // Enable deep linking back to your app
-          ephemeralWebSession: false, // Important for auth to persist
-        });
-      } else {
-        Linking.openURL(auth_url);
-      }
+      // Use system browser for OAuth (recommended for OAuth flows)
+      await Linking.openURL(auth_url);
     } catch (error) {
       console.error('Authentication failed:', error);
       Alert.alert('Connection Error', 'Failed to connect to Spotify. Please try again later.');
@@ -99,7 +137,6 @@ const LoginScreen = ({ navigation }) => {
   );
 };
 
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -121,7 +158,7 @@ const styles = StyleSheet.create({
   },
   buttonGroup: {
     position: 'absolute',
-    top: '49%', // Adjust this percentage to move buttons up/down
+    top: '49%', 
     left: 0,
     right: 0,
     alignItems: 'center',
