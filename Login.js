@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -6,122 +6,167 @@ import {
   StyleSheet, 
   Image, 
   Alert, 
-  Linking 
+  Linking,
+  ActivityIndicator,
+  AppState
 } from 'react-native';
-import InAppBrowser from 'react-native-inappbrowser-reborn';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const LoginScreen = ({ navigation }) => {
-  useEffect(() => {
-    const parseDeepLinkUrl = (url) => {
-      try {
-        const params = {};
-        const queryString = url.split('?')[1];
-        
-        if (queryString) {
-          queryString.split('&').forEach(param => {
-            const [key, value] = param.split('=');
-            params[decodeURIComponent(key)] = decodeURIComponent(value || '');
-          });
-        }
-        
-        return params;
-      } catch (error) {
-        console.error('Error parsing URL:', error);
-        return {};
-      }
-    };
+  const [isLoading, setIsLoading] = useState(true);
 
-    const handleDeepLink = (event) => {
-      const url = typeof event === 'string' ? event : event.url;
+  const parseDeepLinkUrl = (url) => {
+    try {
+      const params = {};
+      const queryString = url.split('?')[1];
       
-      if (url && url.includes('beatpulse://callback')) {
-        console.log('Deep link received:', url);
-        const params = parseDeepLinkUrl(url);
-        
-        if (params.code) {
-          exchangeCodeForToken(params.code);
-        } else if (params.error) {
-          console.error('OAuth error:', params.error);
-          Alert.alert('Authentication Error', params.error_description || 'Authentication failed');
-        } else {
-          console.warn('No authorization code found in deep link');
-        }
+      if (queryString) {
+        queryString.split('&').forEach(param => {
+          const [key, value] = param.split('=');
+          params[decodeURIComponent(key)] = decodeURIComponent(value || '');
+        });
       }
-    };
-
-    // For newer React Native versions
-    const subscription = Linking.addEventListener('url', handleDeepLink);
-
-    // Check if app was launched from a deep link
-    Linking.getInitialURL().then(url => {
-      if (url && url.includes('beatpulse://callback')) {
-        console.log('App launched with deep link:', url);
-        handleDeepLink(url);
-      }
-    }).catch(error => {
-      console.error('Error checking initial URL:', error);
-    });
-
-    return () => {
-      subscription?.remove();
-    };
-  }, []);
+      
+      return params;
+    } catch (error) {
+      console.error('Error parsing URL:', error);
+      return {};
+    }
+  };
 
   const exchangeCodeForToken = async (code) => {
     try {
-      console.log('Exchanging code for token:', code);
       const response = await fetch(
         `http://127.0.0.1:5001/spotify/callback?code=${code}`
       );
       
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       
       const tokenData = await response.json();
       
-      if (tokenData.error) {
-        throw new Error(tokenData.error);
-      }
+      if (tokenData.error) throw new Error(tokenData.error);
       
       if (tokenData.access_token && tokenData.user_id) {
-        await AsyncStorage.setItem('spotify_access_token', tokenData.access_token);
-        await AsyncStorage.setItem('spotify_user_id', tokenData.user_id);
+        await AsyncStorage.multiSet([
+          ['spotify_access_token', tokenData.access_token],
+          ['spotify_user_id', tokenData.user_id],
+          ['spotify_token_expires', tokenData.expires_in.toString()],
+          ['spotify_refresh_token', tokenData.refresh_token]
+        ]);
 
-        console.log('Auth successful, navigating to Home');
-        navigation.navigate('Home');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Home' }],
+        });
       } else {
         throw new Error('No access token received');
       }
     } catch (error) {
       console.error('Token exchange failed:', error);
       Alert.alert('Authentication Error', 'Failed to complete authentication. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
+
+  const handleDeepLink = async (url) => {
+    if (!url) return;
+    
+    if (url.includes('beatpulse://callback')) {
+      const params = parseDeepLinkUrl(url);
+      
+      if (params.code) {
+        setIsLoading(true);
+        await exchangeCodeForToken(params.code);
+      } else if (params.error) {
+        Alert.alert('Authentication Error', params.error_description || 'Authentication failed');
+      }
+    }
+  };
+
+  const checkAuthStatus = async () => {
+    try {
+      const token = await AsyncStorage.getItem('spotify_access_token');
+      if (token) {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Home' }],
+        });
+      }
+    } catch (error) {
+      console.error('Error checking auth status:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAppStateChange = async (nextAppState) => {
+    if (nextAppState === 'active') {
+      try {
+        const url = await Linking.getInitialURL();
+        if (url) {
+          handleDeepLink(url);
+        } else {
+          checkAuthStatus();
+        }
+      } catch (error) {
+        console.error('Error handling app state change:', error);
+      }
+    }
+  };
+
+  const initializeDeepLinking = async () => {
+    const initialUrl = await Linking.getInitialURL();
+    if (initialUrl) {
+      handleDeepLink(initialUrl);
+    } else {
+      checkAuthStatus();
+    }
+
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      handleDeepLink(url);
+    });
+
+    return () => subscription.remove();
+  };
+
+  useEffect(() => {
+    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
+    const deepLinkCleanup = initializeDeepLinking();
+
+    return () => {
+      appStateSubscription.remove();
+      deepLinkCleanup();
+    };
+  }, [navigation]);
 
   const handleSpotifyLogin = async () => {
     try {
+      setIsLoading(true);
       const response = await fetch('http://127.0.0.1:5001/spotify/auth_url');
       
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       
       const { auth_url } = await response.json();
-      
-      // Use system browser for OAuth (recommended for OAuth flows)
       await Linking.openURL(auth_url);
-      
     } catch (error) {
       console.error('Authentication failed:', error);
       Alert.alert('Connection Error', 'Failed to connect to Spotify. Please try again later.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color="#1DB954" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      {/* App Logo - True Center */}
       <View style={styles.centerContainer}>
         <Image 
           source={require('./assets/beat-logo.png')}
@@ -129,7 +174,6 @@ const LoginScreen = ({ navigation }) => {
         />
       </View>
       
-      {/* Buttons - Slightly Below Center */}
       <View style={styles.buttonGroup}>
         <Text style={styles.title}>Connect Your Accounts</Text>
         
@@ -141,6 +185,7 @@ const LoginScreen = ({ navigation }) => {
         <TouchableOpacity 
           style={[styles.button, styles.spotifyButton]} 
           onPress={handleSpotifyLogin}
+          disabled={isLoading}
         >
           <Image source={require('./assets/spotify-logo.png')} style={styles.buttonIcon} />
           <Text style={styles.buttonText}>Connect Spotify</Text>
@@ -210,6 +255,10 @@ const styles = StyleSheet.create({
   buttonIcon: {
     width: 30,
     height: 30
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
   }
 });
 

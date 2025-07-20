@@ -1,42 +1,61 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  StyleSheet, 
+  Alert,
+  ActivityIndicator 
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const HomeScreen = ({ navigation }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    checkAuthStatus();
-  }, []);
+    const verifyToken = async () => {
+      const token = await AsyncStorage.getItem('spotify_access_token');
+      if (!token) {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      } else {
+        setIsAuthenticated(true);
+      }
+      setLoading(false);
+    };
 
-  const checkAuthStatus = async () => {
-    try {
-      const token = await AsyncStorage.getItem('spotify_token');
-      const userId = await AsyncStorage.getItem('spotify_user_id');
-      setIsAuthenticated(!!token && !!userId);
-    } catch (error) {
-      console.error('Error checking auth status:', error);
-    }
-  };
+    const unsubscribe = navigation.addListener('focus', verifyToken);
+    return unsubscribe;
+  }, [navigation]);
 
   const handleLogout = async () => {
     try {
-      await AsyncStorage.multiRemove(['spotify_token', 'spotify_user_id']);
-      navigation.navigate('Login');
+      await AsyncStorage.multiRemove([
+        'spotify_access_token',
+        'spotify_user_id',
+        'spotify_token_expires',
+        'spotify_refresh_token'
+      ]);
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
     } catch (error) {
       console.error('Error during logout:', error);
       Alert.alert('Error', 'Failed to logout');
     }
   };
 
-  const navigateToProfile = () => {
-    if (isAuthenticated) {
-      navigation.navigate('Profile');
-    } else {
-      Alert.alert('Not Authenticated', 'Please login first');
-      navigation.navigate('Login');
-    }
-  };
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color="#1DB954" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -45,26 +64,25 @@ const HomeScreen = ({ navigation }) => {
       <View style={styles.buttonContainer}>
         <TouchableOpacity 
           style={styles.button} 
-          onPress={navigateToProfile}
+          onPress={() => navigation.navigate('Profile')}
+          disabled={!isAuthenticated}
         >
           <Text style={styles.buttonText}>View Music Profile</Text>
         </TouchableOpacity>
         
-        {isAuthenticated && (
+        {isAuthenticated ? (
           <TouchableOpacity 
             style={[styles.button, styles.logoutButton]} 
             onPress={handleLogout}
           >
             <Text style={styles.buttonText}>Logout</Text>
           </TouchableOpacity>
-        )}
-        
-        {!isAuthenticated && (
+        ) : (
           <TouchableOpacity 
             style={[styles.button, styles.loginButton]} 
             onPress={() => navigation.navigate('Login')}
           >
-            <Text style={styles.buttonText}>Login</Text>
+            <Text style={styles.buttonText}>Login with Spotify</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -75,40 +93,40 @@ const HomeScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    padding: 20,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+  },
+  loadingContainer: {
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
   title: {
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#1DB954',
-    marginBottom: 50,
+    textAlign: 'center',
+    marginBottom: 30,
   },
   buttonContainer: {
     width: '100%',
-    alignItems: 'center',
   },
   button: {
     backgroundColor: '#1DB954',
-    paddingVertical: 15,
-    paddingHorizontal: 30,
+    padding: 15,
     borderRadius: 25,
-    marginBottom: 20,
-    width: '80%',
     alignItems: 'center',
-  },
-  logoutButton: {
-    backgroundColor: '#FF6B6B',
-  },
-  loginButton: {
-    backgroundColor: '#333',
+    marginBottom: 15,
   },
   buttonText: {
-    color: '#fff',
-    fontSize: 16,
+    color: 'white',
     fontWeight: 'bold',
+    fontSize: 16,
+  },
+  logoutButton: {
+    backgroundColor: '#e74c3c',
+  },
+  loginButton: {
+    backgroundColor: '#1DB954',
   },
 });
 

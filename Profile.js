@@ -1,136 +1,120 @@
-import React, { use } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-    View,
-    Text,
-    Image,
-    ScrollView,
-    TouchableOpacity,
-    StyleSheet,
-    Alert,
-    ActivityIndicator,
-    RefreshControl
+  View,
+  Text,
+  Image,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  RefreshControl
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ProfileScreen = ({ navigation }) => {
-    const [profile, setProfile] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
-    const [recentlyPlayed, setRecentlyPlayed] = useState([]);
-    const [timeRange, setTimeRange] = useState('medium_term');
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [recentlyPlayed, setRecentlyPlayed] = useState([]);
+  const [timeRange, setTimeRange] = useState('medium_term');
 
-    const SERVER_URL = 'http://127.0.0.1:5001';
+  const SERVER_URL = 'http://127.0.0.1:5001';
 
-    useEffect(() => {
-        loadUserData();
-    }, [timeRange]);
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadUserData();
+    });
+    return unsubscribe;
+  }, [navigation, timeRange]);
 
-    const loadUserData = async () => {
-        try {
-            const userId = await AsyncStorage.getItem('spotify_user_id');
-            if (!userId) {
-                Alert.alert('Error', 'User ID not found. Please log in again.');
-                navigation.navigate('Login');
-                return;
-            }
+  const verifyToken = async () => {
+    const token = await AsyncStorage.getItem('spotify_access_token');
+    if (!token) {
+      Alert.alert('Session Expired', 'Please login again');
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+      return false;
+    }
+    return true;
+  };
 
-            await Promise.all([
-                fetchUserProfile(userId),
-                fetchRecentlyPlayedTracks(userId)
-            ]);
-        } catch (error) {
-            console.error('Error loading user data:', error);
-            Alert.alert('Error', 'Failed to load user data. Please try again.');
-        } finally {
-            setLoading(false);
+  const loadUserData = async () => {
+    try {
+      setLoading(true);
+      const isAuthenticated = await verifyToken();
+      if (!isAuthenticated) return;
+
+      const userId = await AsyncStorage.getItem('spotify_user_id');
+      const token = await AsyncStorage.getItem('spotify_access_token');
+
+      await Promise.all([
+        fetchUserProfile(userId, token),
+        fetchRecentlyPlayedTracks(userId, token)
+      ]);
+    } catch (error) {
+      console.error('Error loading user data:', error);
+      Alert.alert('Error', 'Failed to load user data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchUserProfile = async (userId, token) => {
+    try {
+      const response = await fetch(`${SERVER_URL}/spotify/profile?user_id=${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
         }
-    };
+      });
+      
+      if (response.status === 401) {
+        throw new Error('Unauthorized');
+      }
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const profileData = await response.json();
+      setProfile(profileData);
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      if (error.message === 'Unauthorized') {
+        await AsyncStorage.multiRemove([
+          'spotify_access_token',
+          'spotify_user_id'
+        ]);
+        navigation.navigate('Login');
+      }
+      throw error;
+    }
+  };
 
-    const fetchUserProfile = async (userId) => {
-        try {
-            const response = await fetch(`${SERVER_URL}/spotify/profile/user_id=${userId}`);
-            if (response.ok) {
-                const profileData = await response.json();
-                setProfile(profileData);
-            }
-            
-        } catch (error) {
-            console.error('Error fetching user profile:', error);
-            Alert.alert('Error', 'Failed to fetch user profile.');
+  const fetchRecentlyPlayedTracks = async (userId, token) => {
+    try {
+      const response = await fetch(
+        `${SERVER_URL}/spotify/recently-played?user_id=${userId}&limit=5`, 
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
         }
-    };
+      );
 
-    const fetchRecentlyPlayedTracks = async (userId) => {
-        try {
-            const response = await fetch(`${SERVER_URL}/spotify/recently-played/${userId}?limit=5`);
-            if (response.ok) {
-                const data = await response.json();
-                setRecentlyPlayed(data.items || []);
-            } else {
-                console.error('Failed to fetch recently played tracks:', response.statusText);
-            }
-        } catch (error) {
-            console.error('Error fetching recently played tracks:', error);
-            Alert.alert('Error', 'Failed to fetch recently played tracks.');
-        }
-    };
-
-    const onRefresh = async () => {
-        setRefreshing(true);
-        await loadUserData();
-        setRefreshing(false);
-    };
-
-    const renderTimeRangeSelector = () => {
-        const timeRanges = [
-            { key: 'short_term', label: '4 Weeks' },
-            { key: 'medium_term', label: '6 Months' },
-            { key: 'long_term', label: 'All Time' }
-        ];
-
-        return (
-            <View style={styles.timeRangeSelector}>
-                {timeRanges.map((range) => (
-                    <TouchableOpacity
-                        key={range.key}
-                        style={[
-                            styles.timeRangeButton,
-                            timeRange === range.key && styles.activeTimeRangeButton
-                        ]}
-                        onPress={() => setTimeRange(range.key)}
-                    >
-                        <Text style={[
-                            styles.timeRangeText,
-                            timeRange === range.key && styles.timeRangeTextActive,
-                        ]}
-                        >
-                            {range.label}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
-            </View>
-        );
-    };
-
-    const renderRecentlyPlayedItem = (item, index) => {
-        const track = item.track;
-        return (
-            <View key={`${track.id}-${item.played_at}`} style={styles.listItem}>
-            {track.album?.images && track.album.images[0] && (
-                <Image source={{ uri: track.album.images[0].url }} style={styles.trackImage} />
-            )}
-            <View style={styles.itemInfo}>
-                <Text style={styles.itemName}>{track.name}</Text>
-                <Text style={styles.itemDetail}>
-                    {track.artists?.map(artist => artist.name).join(', ')}
-                </Text>
-                <Text style={styles.playedAt}>
-                    {new Date(item.played_at).toLocaleDateString()}
-                </Text>
-                </View>
-            </View>
-        );
-    };
+      if (response.ok) {
+        const data = await response.json();
+        setRecentlyPlayed(data.items || []);
+      } else {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (error) {
+      console.error('Error fetching recently played tracks:', error);
+      throw error;
+    }
+  };
 
     if (loading) {
         return (
