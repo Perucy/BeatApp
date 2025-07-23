@@ -34,7 +34,7 @@ const LoginScreen = ({ navigation }) => {
 
   const handleLogin = async () => {
     try {
-      const response = await axios.get('http://192.168.1.248:8000/spotify/auth_url')
+      const response = await axios.get('http://your ip/spotify/auth_url')
 
       const authUrl = response.data.auth_url;
 
